@@ -1,0 +1,15 @@
+[package]
+name = "alumni-donation-program"
+version = "1.0.0"
+authors = []
+
+[addresses]
+MyModule = "0x3a246729905281dbc7a240a624a77d78b8ba67f3558e58849bcc2639d914b1fe"
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
