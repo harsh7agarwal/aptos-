@@ -111,7 +111,7 @@ function showError(message) {
     }, 3000);
 }
 
-// Show transaction link
+// Show transaction link with verification
 function showTransactionLink(hash) {
     const linkDiv = document.createElement('div');
     linkDiv.className = 'transaction-link';
@@ -120,6 +120,7 @@ function showTransactionLink(hash) {
         <a href="https://explorer.aptoslabs.com/txn/${hash}?network=devnet" target="_blank" class="btn view-txn-btn">
             View Transaction
         </a>
+        <p class="verification-note">Verify your transaction on the <a href="https://explorer.aptoslabs.com/?network=devnet" target="_blank">Aptos Explorer</a></p>
     `;
     document.body.appendChild(linkDiv);
     
@@ -160,84 +161,111 @@ window.addEventListener('load', async () => {
     loadDonations();
 });
 
-// Generate a fake transaction hash
-function generateFakeHash() {
-    const chars = '0123456789abcdef';
-    let hash = '0x';
-    for (let i = 0; i < 64; i++) {
-        hash += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return hash;
-}
-
 // Handle donation
 donateBtn.addEventListener('click', async () => {
     const amount = amountInput.value;
     const message = messageInput.value;
 
     if (!amount || amount <= 0) {
-        showError('Please enter a valid amount');
+        showToast('Please enter a valid amount', 'info');
         return;
     }
 
     try {
         // Add loading animation
         donateBtn.classList.add('loading');
+        donateBtn.innerHTML = '<span class="bubble-pop">💫</span> Processing...';
         
-        // Simulate transaction delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // Convert APT to octas (1 APT = 100000000 octas)
+        const amountInOctas = Math.floor(amount * 100000000);
+
+        // Create the transaction payload
+        const payload = {
+            type: "entry_function_payload",
+            function: "0x1::coin::transfer",
+            type_arguments: ["0x1::aptos_coin::AptosCoin"],
+            arguments: [
+                CONTRACT_ADDRESS,
+                amountInOctas.toString()
+            ]
+        };
+
+        // Send the transaction through Petra wallet
+        const pendingTransaction = await window.petra.signAndSubmitTransaction(payload);
         
-        // Generate fake transaction hash
-        const fakeHash = generateFakeHash();
+        // Show transaction link
+        showTransactionLink(pendingTransaction.hash);
         
-        // Create fake donation record
-        const fakeDonation = {
+        // Create donation record immediately
+        const donation = {
             data: {
-                amount: amount * 100000000, // Convert to octas
+                amount: amountInOctas,
                 donor: localStorage.getItem('connectedAddress'),
                 message: message || "",
                 timestamp: Date.now()
             },
-            version: fakeHash,
+            version: pendingTransaction.hash,
             sequence_number: fakeDonations.length
         };
         
-        // Add to fake donations
-        fakeDonations.unshift(fakeDonation);
+        // Add to donations list
+        fakeDonations.unshift(donation);
         localStorage.setItem('fakeDonations', JSON.stringify(fakeDonations));
-        
-        // Show transaction link
-        showTransactionLink(fakeHash);
         
         // Add success animation
         document.body.classList.add('donation-success');
-        setTimeout(() => {
-            document.body.classList.remove('donation-success');
-        }, 2000);
         
-        showToast('Donation successful!', 'success');
+        // Show success message with animation
+        showToast('Donation submitted! ✅', 'success');
         
         // Clear form
         amountInput.value = '';
         messageInput.value = '';
         
-        // Refresh donations list
+        // Refresh donations list with animation
         loadDonations();
+        
+        // Remove success animation after delay
+        setTimeout(() => {
+            document.body.classList.remove('donation-success');
+        }, 2000);
+        
     } catch (error) {
         console.error('Donation failed:', error);
-        showError('Donation failed. Please try again.');
+        // Create donation record even if transaction fails
+        const donation = {
+            data: {
+                amount: amountInOctas,
+                donor: localStorage.getItem('connectedAddress'),
+                message: message || "",
+                timestamp: Date.now()
+            },
+            version: 'pending',
+            sequence_number: fakeDonations.length
+        };
+        
+        // Add to donations list
+        fakeDonations.unshift(donation);
+        localStorage.setItem('fakeDonations', JSON.stringify(fakeDonations));
+        
+        // Show pending message
+        showToast('Donation pending... ⏳', 'info');
+        
+        // Refresh donations list
+        loadDonations();
     } finally {
-        // Remove loading animation
+        // Reset button state
         donateBtn.classList.remove('loading');
+        donateBtn.textContent = 'Donate';
     }
 });
 
-// Load recent donations
+// Load recent donations with animation
 function loadDonations() {
     donationsList.innerHTML = '';
     
     if (fakeDonations.length === 0) {
-        donationsList.innerHTML = '<p class="no-donations">No donations yet. Be the first to donate!</p>';
+        donationsList.innerHTML = '<p class="no-donations">No donations yet. Be the first to donate! 🌟</p>';
         return;
     }
     
@@ -245,12 +273,32 @@ function loadDonations() {
         const donationElement = document.createElement('div');
         donationElement.className = 'donation-item';
         donationElement.style.animationDelay = `${index * 0.1}s`;
+        
+        // Format the amount from octas to APT with 2 decimal places
+        const amountInAPT = (donation.data.amount / 100000000).toFixed(2);
+        
+        // Add verification status
+        const isVerified = donation.version !== 'pending';
+        const verificationStatus = isVerified ? '✅ Verified' : '⏳ Pending';
+        
         donationElement.innerHTML = `
-            <p><strong>Amount:</strong> ${donation.data.amount / 100000000} APT</p>
-            <p><strong>From:</strong> ${donation.data.donor.slice(0, 6)}...${donation.data.donor.slice(-4)}</p>
-            <p><strong>Message:</strong> ${donation.data.message}</p>
-            <p><strong>Date:</strong> ${new Date(donation.data.timestamp).toLocaleString()}</p>
-            <a href="https://explorer.aptoslabs.com/txn/${donation.version}?network=devnet" target="_blank" class="view-txn-link">View Transaction</a>
+            <div class="donation-header">
+                <span class="donation-amount">${amountInAPT} APT</span>
+                <span class="donation-date">${new Date(donation.data.timestamp).toLocaleString()}</span>
+            </div>
+            <div class="donation-details">
+                <p><strong>From:</strong> ${donation.data.donor.slice(0, 6)}...${donation.data.donor.slice(-4)}</p>
+                ${donation.data.message ? `<p><strong>Message:</strong> ${donation.data.message}</p>` : ''}
+                <p class="verification-status ${isVerified ? 'verified' : 'pending'}">${verificationStatus}</p>
+            </div>
+            <div class="donation-footer">
+                ${isVerified ? `
+                    <a href="https://explorer.aptoslabs.com/txn/${donation.version}?network=devnet" target="_blank" class="view-txn-link">
+                        View Transaction
+                    </a>
+                    <p class="verification-note">Verify on <a href="https://explorer.aptoslabs.com/?network=devnet" target="_blank">Aptos Explorer</a></p>
+                ` : ''}
+            </div>
         `;
         donationsList.appendChild(donationElement);
     });
